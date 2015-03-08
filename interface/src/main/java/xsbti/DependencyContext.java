@@ -23,5 +23,10 @@ public enum DependencyContext {
 	/**
 	 * Dependencies coming from the expansion of a macro
 	 */
-	DependencyByMacroExpansion
+	DependencyByMacroExpansion,
+
+	/*
+	 * Represents the dependencies introduced in a macro implementation
+	 */
+	DependencyFromMacroImpl
 }
