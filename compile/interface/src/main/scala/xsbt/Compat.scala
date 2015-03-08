@@ -115,6 +115,14 @@ abstract class Compat {
     }.flatten.toList
   }
 
+  def extractTouchedSymbols(tree: Tree): Set[Symbol] = {
+    import TreeAttachmentsCompat._
+    tree.attachments.all.collect {
+      case syms: Map[String, Any] =>
+        syms.get("touchedSymbols").getOrElse(Nil).asInstanceOf[List[Symbol]]
+    }.flatten.toSet
+  }
+
   object MacroExpansionOf {
     def unapply(tree: Tree): Option[Tree] = {
 

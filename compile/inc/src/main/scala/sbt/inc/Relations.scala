@@ -206,6 +206,15 @@ trait Relations {
    */
   private[inc] def inheritance: SourceDependencies
 
+  /**
+   * The source dependency relation between source files introduced by a macro expansion.
+   * This dependency is introduced when a macro implementation uses the reflection API to collect
+   * information about another object.
+   *
+   * The client of this macro should be recompiled if the inspected object is modified.
+   */
+  private[inc] def macroExpansion: SourceDependencies
+
   /** The dependency relations between sources.  These include both direct and inherited dependencies.*/
   def direct: Source
 
@@ -265,6 +274,8 @@ object Relations {
       ("member reference external dependencies", identity[String] _),
       ("inheritance internal dependencies", string2File),
       ("inheritance external dependencies", identity[String] _),
+      ("macro expansion internal dependencies", string2File),
+      ("macro expansion external dependencies", identity[String] _),
       ("class names", identity[String] _),
       ("used names", identity[String] _))
   }
@@ -274,7 +285,7 @@ object Relations {
    */
   def construct(nameHashing: Boolean, relations: List[Relation[_, _]]) =
     relations match {
-      case p :: bin :: aux :: di :: de :: pii :: pie :: mri :: mre :: ii :: ie :: cn :: un :: Nil =>
+      case p :: bin :: aux :: di :: de :: pii :: pie :: mri :: mre :: ii :: ie :: mei :: mee :: cn :: un :: Nil =>
         val srcProd = p.asInstanceOf[Relation[File, File]]
         val binaryDep = bin.asInstanceOf[Relation[File, File]]
         val auxiliaryDep = aux.asInstanceOf[Relation[File, File]]
@@ -282,6 +293,7 @@ object Relations {
         val publicInheritedSrcDeps = makeSource(pii.asInstanceOf[Relation[File, File]], pie.asInstanceOf[Relation[File, String]])
         val memberRefSrcDeps = makeSourceDependencies(mri.asInstanceOf[Relation[File, File]], mre.asInstanceOf[Relation[File, String]])
         val inheritanceSrcDeps = makeSourceDependencies(ii.asInstanceOf[Relation[File, File]], ie.asInstanceOf[Relation[File, String]])
+        val macroExpSrcDeps = makeSourceDependencies(mei.asInstanceOf[Relation[File, File]], mee.asInstanceOf[Relation[File, String]])
         val classes = cn.asInstanceOf[Relation[File, String]]
         val names = un.asInstanceOf[Relation[File, String]]
 
@@ -291,8 +303,8 @@ object Relations {
         assert(!nameHashing || (directSrcDeps == emptySource), "When name hashing is enabled the `direct` relation should be empty.")
 
         if (nameHashing) {
-          val internal = InternalDependencies(Map(DependencyByMemberRef -> mri.asInstanceOf[Relation[File, File]], DependencyByInheritance -> ii.asInstanceOf[Relation[File, File]]))
-          val external = ExternalDependencies(Map(DependencyByMemberRef -> mre.asInstanceOf[Relation[File, String]], DependencyByInheritance -> ie.asInstanceOf[Relation[File, String]]))
+          val internal = InternalDependencies(Map(DependencyByMemberRef -> mri.asInstanceOf[Relation[File, File]], DependencyByInheritance -> ii.asInstanceOf[Relation[File, File]], DependencyByMacroExpansion -> mei.asInstanceOf[Relation[File, File]]))
+          val external = ExternalDependencies(Map(DependencyByMemberRef -> mre.asInstanceOf[Relation[File, String]], DependencyByInheritance -> ie.asInstanceOf[Relation[File, String]], DependencyByMacroExpansion -> mee.asInstanceOf[Relation[File, String]]))
           Relations.make(srcProd, binaryDep, auxiliaryDep, internal, external, classes, names)
         } else {
           assert(names.all.isEmpty, s"When `nameHashing` is disabled `names` relation should be empty: $names")
@@ -520,6 +532,9 @@ private class MRelationsDefaultImpl(srcProd: Relation[File, File], binaryDep: Re
   def inheritance: SourceDependencies =
     throw new UnsupportedOperationException("The `memberRef` source dependencies relation is not supported " +
       "when `nameHashing` flag is disabled.")
+  def macroExpansion: SourceDependencies =
+    throw new UnsupportedOperationException("The `macroExpansion` source dependencies relations is not supported" +
+      "when `nameHashing` flag is disabled.")
 
   def addProduct(src: File, prod: File, name: String): Relations =
     new MRelationsDefaultImpl(srcProd + (src, prod), binaryDep, auxiliaryDep, direct = direct,
@@ -636,6 +651,8 @@ private class MRelationsDefaultImpl(srcProd: Relation[File, File], binaryDep: Re
       Relations.emptySourceDependencies.external, // Default implementation doesn't provide memberRef source deps
       Relations.emptySourceDependencies.internal, // Default implementation doesn't provide inheritance source deps
       Relations.emptySourceDependencies.external, // Default implementation doesn't provide inheritance source deps
+      Relations.emptySourceDependencies.internal, // Default implementation doesn't provide macro expansion source deps
+      Relations.emptySourceDependencies.external, // Default implementation doesn't provide macro expansion source deps
       classes,
       Relation.empty[File, String]) // Default implementation doesn't provide used names relation
     Relations.existingRelations map (_._1) zip rels
@@ -725,6 +742,8 @@ private class MRelationsNameHashing(srcProd: Relation[File, File], binaryDep: Re
     new SourceDependencies(internalDependencies.dependencies.getOrElse(DependencyByInheritance, Relation.empty), externalDependencies.dependencies.getOrElse(DependencyByInheritance, Relation.empty))
   override def memberRef: SourceDependencies =
     new SourceDependencies(internalDependencies.dependencies.getOrElse(DependencyByMemberRef, Relation.empty), externalDependencies.dependencies.getOrElse(DependencyByMemberRef, Relation.empty))
+  override def macroExpansion: SourceDependencies =
+    new SourceDependencies(internalDependencies.dependencies.getOrElse(DependencyByMacroExpansion, Relation.empty), externalDependencies.dependencies.getOrElse(DependencyByMacroExpansion, Relation.empty))
 
   def ++(o: Relations): Relations = {
     if (!o.nameHashing)
@@ -764,12 +783,14 @@ private class MRelationsNameHashing(srcProd: Relation[File, File], binaryDep: Re
       memberRef.external,
       inheritance.internal,
       inheritance.external,
+      macroExpansion.internal,
+      macroExpansion.external,
       classes,
       names)
     Relations.existingRelations map (_._1) zip rels
   }
 
-  override def hashCode = (srcProd :: binaryDep :: memberRef :: inheritance :: classes :: Nil).hashCode
+  override def hashCode = (srcProd :: binaryDep :: memberRef :: inheritance :: macroExpansion :: classes :: Nil).hashCode
 
   override def toString = (
     """
