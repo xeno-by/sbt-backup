@@ -452,7 +452,7 @@ lazy val mainProj = (project in mainPath).
 //  technically, we need a dependency on all of mainProj's dependencies, but we don't do that since this is strictly an integration project
 //  with the sole purpose of providing certain identifiers without qualification (with a package object)
 lazy val sbtProj = (project in sbtPath).
-  dependsOn(mainProj, compileInterfaceProj, precompiled282, precompiled292, precompiled293, scriptedSbtProj % "test->test").
+  dependsOn(mainProj, compileInterfaceProj, scriptedSbtProj % "test->test").
   settings(baseSettings: _*).
   settings(
     name := "sbt",
